@@ -25,8 +25,8 @@
 ; (if-let [id expr] expr expr) -> expr
 ;
 ; Stepping rules:
-;  - (if-let/0 [x #false] t f) => f
-;  - (if-let/0 [x v]      t f) => {plug v for x in t}  (only if v ≠ #false)
+;  - (if-let [x #false] t f) => f
+;  - (if-let [x v]      t f) => {plug v for x in t}  (only if v ≠ #false)
 (define-macro (if-let [var:id test:expr] then:expr else:expr)
   (local [(define temp test)]
     (if (eq? #false temp)
@@ -248,6 +248,7 @@
 (check-expect (format "~a" card-dir=?)      "#<procedure:card-dir=?>")
 (check-expect (format "~a" card-dir:north?) "#<procedure:card-dir:north?>")
 (check-expect (format "~e" card-dir:west)   "(make-enum 'card-dir 'west)")
+
 
 ;;;;;
 ;;;;; if-let*

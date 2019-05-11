@@ -111,7 +111,9 @@
     (syntax-mapper
      [((~literal ~id-concat) before:str ... loc:id after:id-or-str ...)
       (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]
-     [((~literal ~id-concat) (before:id-or-str ...) loc:id after:id-or-str ...)
+     [((~literal ~id-concat) (before:id-or-str ...)
+                             loc:id-or-str
+                             after:id-or-str ...)
       (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]))
 
   (define macro-body
