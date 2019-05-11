@@ -85,7 +85,7 @@
 ;  - ; name->string : Name -> String
 ;    ; Converts a `Name` to its string representation (`alt` stringified).
 ;
-;  - ; string->name : String -> [U Name #false]
+;  - ; string->name : String -> [Union Name #false]
 ;    ; Converts a `String` to a `Name` if it matches an alterative; returns
 ;    ; #false otherwise.
 ;
@@ -118,14 +118,29 @@
    ;  - (any-append "foo" 'bar) => "foobar"
    (define (any-append a b)
      (format "~a~a" a b))
+
+   ; type-error : [List-of Any] X -> ERROR!
+   ; Produces an error complaining that `who` got `what`.
+   (define (type-error who what)
+     (error "error: " (foldr any-append (format ": got ~e" what) who)))
   
-   ; check : X [List-of Any] [Any -> Boolean] -> X
-   ; Returns `x` if `(pred? x)` is true; otherwise produces an error
+   ; check : Any [List-of Any] [Any -> Boolean : X] -> X
+   ; Returns `what` if `(x? what)` is true; otherwise produces an error
    ; message using `who` to say who is complaining.
-   (define (check x who pred?)
-     (if (pred? x)
-         x
-         (error (format "error: ~a: got ~e" (foldr any-append "" who) x))))
+   (define (check what who x?)
+     (if (x? what)
+         what
+         (type-error who what)))
+
+   ; try-convert : Any [Any -> Bool : X] [Symbol -> X] [List-of X]
+   ;               -> [Union X #false]
+   (define (try-convert v x? symbol->x xs)
+     (cond
+       [(symbol? v) (symbol->x v)]
+       [(string? v) (symbol->x (string->symbol v))]
+       [(and (integer? v) (< -1 v (length xs))) (list-ref xs v)]
+       [(x? v) v]
+       [else #false]))
 
    ; (define-one-enum id expr) -> defns
    (define-macro (define-one-enum var:id value:expr)
@@ -134,27 +149,34 @@
 
   ;; Here is the main definition of `define-enum`:
   (define-macro (define-enum name:id [alt:id ...])
-    (define-struct enum [name tag])
-    (define ({~id-concat name "?"} a)
-      (enum? a))
+    (define-struct {~id-concat (name)} [tag])
+    (define {~id-concat name "?"} {~id-concat (name "?")})
+    (define pred? {~id-concat (name "?")})
     (define ({~id-concat name "=?"} a b)
-      (eq? (check a '(name =?) enum?) (check b '(name =?) enum?)))
+      (eq? (check a '(name =?) pred?) (check b '(name =?) pred?)))
     (define-one-enum {~id-concat (name ":") alt}
-      (make-enum 'name 'alt))
+      ({~id-concat "make-" name} (symbol->string 'alt)))
     ...
     ;;
     ;; Optional but fun stuff:
     ;;
     (define ({~id-concat name "->string"} a)
-      (symbol->string (enum-tag (check a '(name ->string) enum?))))
-    (define ({~id-concat "string->" name} s)
-      (local [(define sym (string->symbol s))]
-        (cond
-          [(symbol=? 'alt sym) {~id-concat (name ":") alt}]
-          ...
-          [else #false])))
+      ({~id-concat (name) -tag} (check a '(name ->string) pred?)))
+    (define ({~id-concat ("symbol->") name} sym)
+      (cond
+        [(symbol=? 'alt sym) {~id-concat (name ":") alt}]
+        ...
+        [else #false]))
+    (define ({~id-concat ("string->") name} s)
+      ({~id-concat ("symbol->") name} (string->symbol s)))
     (define {~id-concat name "-list"}
       (list {~id-concat (name ":") alt} ...))
+    (define ({~id-concat ("make-") name} tag)
+      (if-let [result (try-convert tag pred?
+                                   {~id-concat ("symbol->") name}
+                                   {~id-concat name "-list"})]
+              result
+              (type-error '(make- name) tag)))
     ;;
     ;; Quite advanced stuff:
     ;;
@@ -183,11 +205,12 @@
        (cond
          [(matches? var guard) answer]
          (... ...)
-         [else (error (format "error: ~a-case: no matches" 'name))])])
+         [else (error "error: " (symbol->string 'name)
+                      "-case: no matches")])])
     (define-macro ({~id-concat name "-case"} value:expr
                                              [guard:expr rhs:expr]
                                              (... ...+))
-      (local [(define var (check value '(name -case) enum?))]
+      (local [(define var (check value '(name -case) pred?))]
         (case/helper var [guard rhs] (... ...))))))
 
 
@@ -220,6 +243,13 @@
 (check-expect (string->card-dir "east") card-dir:east)
 (check-expect (string->card-dir "East") #false)
 
+(check-expect (make-card-dir "east")         card-dir:east)
+(check-expect (make-card-dir 'east)          card-dir:east)
+(check-expect (make-card-dir 2)              card-dir:east)
+(check-expect (make-card-dir card-dir:east)  card-dir:east)
+(check-error  (make-card-dir #true)
+              "error: make-card-dir: got #true")
+
 (check-expect card-dir-list
               (list card-dir:north card-dir:south card-dir:east card-dir:west))
 
@@ -247,7 +277,7 @@
 (check-expect (format "~a" card-dir?)       "#<procedure:card-dir?>")
 (check-expect (format "~a" card-dir=?)      "#<procedure:card-dir=?>")
 (check-expect (format "~a" card-dir:north?) "#<procedure:card-dir:north?>")
-(check-expect (format "~e" card-dir:west)   "(make-enum 'card-dir 'west)")
+(check-expect (format "~e" card-dir:west)   "(make-card-dir \"west\")")
 
 
 ;;;;;

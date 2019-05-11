@@ -80,7 +80,7 @@
         name:id [field:id ...])
        #'(struct name [field ...]
            #:transparent
-           #:constructor-name (~id-concat "make-" name)
+           #:constructor-name (~id-concat ("make-") name)
            #:methods gen:custom-write
            [(define (write-proc struct port mode)
               (parameterize ([current-output-port port])
@@ -109,12 +109,14 @@
   ; [Syntax-of X] -> [Syntax-of X]
   (define concat-ids
     (syntax-mapper
-     [((~literal ~id-concat) before:str ... loc:id after:id-or-str ...)
-      (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]
+     [((~literal ~id-concat) loc:id-or-str after:id-or-str ...)
+      (id-concat/fun #'(loc after ...) #:loc #'loc)]
      [((~literal ~id-concat) (before:id-or-str ...)
                              loc:id-or-str
                              after:id-or-str ...)
-      (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]))
+      (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]
+     [((~and loc (~literal ~id-concat)) (part:id-or-str ...+))
+      (id-concat/fun #'(part ...) #:loc #'loc)]))
 
   (define macro-body
     (syntax-parser
