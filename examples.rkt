@@ -59,7 +59,7 @@
 ; data we’re defining, then the implied data definition is:
 ;
 ;   ; A Name is one of:
-;   ;  - name-alt
+;   ;  - name:alt
 ;   ;  ⋮  (for all `alt`s)
 ;
 ; It defines the following values:
@@ -70,7 +70,7 @@
 ;      (define name:alt {a distinct, new value})
 ;
 ;      ; name:alt? : Any -> Boolean
-;      ; Returns true for name-alt and false otherwise.
+;      ; Returns true for `name:alt` and false otherwise.
 ;      (define (name:alt? x) (eq? x name:alt))
 ;
 ;  - ; name? : Any -> Boolean
