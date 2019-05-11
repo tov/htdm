@@ -6,14 +6,16 @@
 
 (require "isl-macros.rkt")
 
+;;;;;
+;;;;; if-let
+;;;;;
 
 (define-macro (if-let/0 [var:id test:expr] then:expr else:expr)
   (local [(define var test)]
     (if (eq? #false var) else then)))
 
 
-(define (truthy? v)
-  (or (not (boolean? v)) v))
+;; Improved:
 
 (define-macro (if-let [var:id test:expr] then:expr else:expr)
   (local [(define temp test)]
@@ -21,39 +23,23 @@
         (local [(define var temp)] then)
         else)))
 
+(define (truthy? v)
+  (or (not (boolean? v)) v))
+
+
 (define (inc-str s)
   (if-let [n (string->number s)]
-          (number->string (add1 n))
-          s))
+    (number->string (add1 n))
+    s))
 
 (check-expect (inc-str "5")      "6")
 (check-expect (inc-str "11/2")   "13/2")
 (check-expect (inc-str "nine")   "nine")
 
 
-(define-match-macro if-let*/helper
-  [(_ () then:expr _)
-   then]
-  [(_ ([var0:id test0:expr] #:rest rest) then:expr else-fun:id)
-   (if-let [var0 test0]
-           (if-let*/helper rest then else-fun)
-           (else-fun 0))])
-
-(define-macro (if-let* ([var:id test:expr] ...+) then:expr else:expr)
-  (local
-    [(define (else-fun _dummy) else)]
-    (if-let*/helper ([var test] ...) then else-fun)))
-
-(define (string-+ a b)
-  (if-let* ([a (string->number a)]
-            [b (string->number b)])
-    (number->string (+ a b))
-    (string-append a b)))
-
-(check-expect (string-+ "4" "5") "9")
-(check-expect (string-+ "4" " 5") "4 5")
-(check-expect (string-+ "4 " "5") "4 5")
-
+;;;;;
+;;;;; define-enum
+;;;;;
 
 (define-macro (define-enum/helper name [alt ...])
   (definition-local
@@ -85,3 +71,33 @@
 (check-expect (card-dir=? card-dir-north card-dir-north) #true)
 (check-expect (card-dir=? card-dir-north card-dir-south) #false)
 (check-error (card-dir=? card-dir-north 8))
+
+
+;;;;;
+;;;;; if-let*
+;;;;;
+
+(define-match-macro if-let*/helper
+  [(_ () then:expr _)
+   then]
+  [(_ ([var0:id test0:expr] #:rest rest) then:expr else-fun:id)
+   (if-let [var0 test0]
+           (if-let*/helper rest then else-fun)
+           (else-fun 0))])
+
+(define-macro (if-let* ([var:id test:expr] ...+) then:expr else:expr)
+  (local
+    [(define (else-fun _dummy) else)]
+    (if-let*/helper ([var test] ...) then else-fun)))
+
+
+(define (string-+ a b)
+  (if-let* ([a (string->number a)]
+            [b (string->number b)])
+    (number->string (+ a b))
+    (string-append a b)))
+
+(check-expect (string-+ "4" "5") "9")
+(check-expect (string-+ "4" " 5") "4 5")
+(check-expect (string-+ "4 " "5") "4 5")
+
