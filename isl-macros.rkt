@@ -14,8 +14,37 @@
          define-match-macro
          definition-group
          definition-local
+         syntax-error
          ~id-concat
-         (for-syntax ... ...+ id expr))
+         (for-syntax ... ...+ id expr number ~literal))
+
+(define-syntax syntax-error
+  (syntax-parser
+    [(_ cxt:expr msg:str param:id ...)
+     (raise-syntax-error #f
+                         (apply format
+                                (map syntax-e (syntax->list #'(msg param ...))))
+                         #'cxt)]))
+
+(begin-for-syntax
+  ; id-concat/fun : [Syntax-of Any] [NE-Syntax-List-of Symbol]
+  ;                 -> [Syntax-of Symbol]
+  (define (id-concat/fun ids-stx #:loc [cxt0 #false])
+    (define ids (syntax-e ids-stx))
+    (define cxt (or cxt0 (car ids)))
+    (datum->syntax
+     cxt
+     (string->symbol
+      (apply string-append
+             (map (λ (id) (format "~a" (syntax-e id)))
+                  ids)))
+     cxt)))
+
+; (id-concat name:id ...+) -> id
+(define-syntax ~id-concat
+  (syntax-parser
+    [(_ name:id ...+)
+     (id-concat/fun #'(name ...))]))
 
 
 ; (definition-group body:expr ...) -> expr
@@ -44,14 +73,21 @@
     (syntax-parser
       [((~or (~literal isl:define)
              (~literal isl+λ:define))
-        head:head-pattern rhs:expr)
+        head:head-pattern rhs)
        #'(define head rhs)]    
       [((~or (~literal isl:define-struct)
              (~literal isl+λ:define-struct))
         name:id [field:id ...])
-       #`(struct name [field ...]
+       #'(struct name [field ...]
            #:transparent
-           #:constructor-name #,(format-id #'name "make-~a" #'name))]
+           #:constructor-name (~id-concat "make-" name)
+           #:methods gen:custom-write
+           [(define (write-proc struct port mode)
+              (parameterize ([current-output-port port])
+                (printf "(make-" 'name)
+                (printf " ~e" ((~id-concat name "-" field) struct))
+                ...
+                (display #\))))])]
       [stx #'stx])))
 
 
@@ -63,34 +99,19 @@
          #,@(map rewrite-define (syntax->list #'(pub ...)))
          (define-values () (values)))]))
 
-(begin-for-syntax
-  ; id-concat/fun : [Syntax-of Any] [NE-Syntax-List-of Symbol]
-  ;                 -> [Syntax-of Symbol]
-  (define (id-concat/fun ids-stx #:loc [cxt0 #false])
-    (define ids (syntax-e ids-stx))
-    (define cxt (or cxt0 (car ids)))
-    (datum->syntax
-     cxt
-     (string->symbol
-      (apply string-append
-             (map (λ (id) (symbol->string (syntax-e id)))
-                  ids)))
-     cxt)))
-
-; (id-concat name:id ...+) -> id
-(define-syntax ~id-concat
-  (syntax-parser
-    [(_ name:id ...+)
-     (id-concat/fun #'(name ...))]))
 
 
 (begin-for-syntax
+  (define-syntax-class id-or-str
+    (pattern _:id)
+    (pattern _:str))
+    
   ; [Syntax-of X] -> [Syntax-of X]
   (define concat-ids
     (syntax-mapper
-     [((~literal ~id-concat) name:id ...+)
-      (id-concat/fun #'(name ...))]
-     [((~literal ~id-concat) (before:id ...) loc:id after:id ...)
+     [((~literal ~id-concat) before:str ... loc:id after:id-or-str ...)
+      (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]
+     [((~literal ~id-concat) (before:id-or-str ...) loc:id after:id-or-str ...)
       (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]))
 
   (define macro-body
@@ -104,7 +125,7 @@
   
 (define-syntax (define-match-macro stx)
   (syntax-parse stx
-    [(_ name:id [(_:id . args) body:expr ...+] ...+)
+    [(_ name:id [(_:id . args) body ...+] ...+)
      (with-syntax
          ([(args ...) (rest->dot #'(args ...))])
        #'(define-syntax name
@@ -112,8 +133,7 @@
              [(_ . args) (macro-body #'(body ...))]
              ...)))]))
 
-; (define-macro (name:id arg ...) body:expr) -> ?
-(define-simple-macro (define-macro (name:id . args) body:expr ...+)
+; (define-macro (name:id arg ...) body) -> ?
+(define-simple-macro (define-macro (name:id . args) body ...+)
   (define-match-macro name
     [(_ . args) body ...]))
-
