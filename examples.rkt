@@ -181,7 +181,7 @@
     ;; Quite advanced stuff:
     ;;
     (define-match-macro matches?
-      [(_ have:id (~literal alt))
+      [(_ have:id {~literal alt})
        (eq? have {~id-concat (name ":") alt})]
       ...
       [(_ have:id want:id)

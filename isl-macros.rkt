@@ -105,6 +105,15 @@
   (define-syntax-class id-or-str
     (pattern _:id)
     (pattern _:str))
+
+  (define-splicing-syntax-class opt-literals
+    (pattern (~seq #:literals param))
+    (pattern (~seq) #:with param #'()))
+           ;  #:attr attr #'(#:literals (lit ...))
+
+    
+          ;   #:attr attr #'(#:literals ())
+
     
   ; [Syntax-of X] -> [Syntax-of X]
   (define concat-ids
@@ -126,18 +135,19 @@
   (define rest->dot
     (syntax-mapper
      [(#:rest rest) #'rest])))
-  
+
 (define-syntax (define-match-macro stx)
   (syntax-parse stx
-    [(_ name:id [(_:id . args) body ...+] ...+)
+    [(_ name:id lits:opt-literals
+        [(_:id . args) body ...+]
+        ...+)
      (with-syntax
          ([(args ...) (rest->dot #'(args ...))])
        #'(define-syntax name
-           (syntax-parser
+           (syntax-parser #:literals lits.param
              [(_ . args) (macro-body #'(body ...))]
              ...)))]))
 
 ; (define-macro (name:id arg ...) body) -> ?
 (define-simple-macro (define-macro (name:id . args) body ...+)
-  (define-match-macro name
-    [(_ . args) body ...]))
+  (define-match-macro name [(_ . args) body ...]))
