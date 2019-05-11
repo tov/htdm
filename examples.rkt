@@ -142,26 +142,31 @@
        [(x? v) v]
        [else #false]))
 
-   ; (define-one-enum id expr) -> defns
-   (define-macro (define-one-enum var:id value:expr)
-     (define var value)
-     (define ({~id-concat var "?"} other) (eq? var other)))]
+   ; (define-one-enum id id) -> defns
+   (define-macro (define-one-enum name:id alt:id)
+     (define-struct {~id-concat (name) ":" alt} [])
+     (define {~id-concat (name ":") alt}
+       ({~id-concat "make-" name ":" alt}))
+     (define ({~id-concat (name ":") alt "?"} a)
+       ({~id-concat (name) ":" alt "?"} a)))]
 
   ;; Here is the main definition of `define-enum`:
   (define-macro (define-enum name:id [alt:id ...])
-    (define-struct {~id-concat (name)} [tag])
-    (define {~id-concat name "?"} {~id-concat (name "?")})
-    (define pred? {~id-concat (name "?")})
+    (define-one-enum name alt)
+    ...
+    (define ({~id-concat name "?"} a)
+      (or* ({~id-concat (name ":") alt "?"} a) ...))
+    (define pred? {~id-concat name "?"})
     (define ({~id-concat name "=?"} a b)
       (eq? (check a '(name =?) pred?) (check b '(name =?) pred?)))
-    (define-one-enum {~id-concat (name ":") alt}
-      ({~id-concat "make-" name} (symbol->string 'alt)))
-    ...
     ;;
     ;; Optional but fun stuff:
     ;;
     (define ({~id-concat name "->string"} a)
-      ({~id-concat (name) -tag} (check a '(name ->string) pred?)))
+      (cond
+        [({~id-concat (name ":") alt "?"} a) (symbol->string 'alt)]
+        ...
+        [else (error (format "error: ~a->string: got ~e" 'name a))]))
     (define ({~id-concat ("symbol->") name} sym)
       (cond
         [(symbol=? 'alt sym) {~id-concat (name ":") alt}]
@@ -277,7 +282,7 @@
 (check-expect (format "~a" card-dir?)       "#<procedure:card-dir?>")
 (check-expect (format "~a" card-dir=?)      "#<procedure:card-dir=?>")
 (check-expect (format "~a" card-dir:north?) "#<procedure:card-dir:north?>")
-(check-expect (format "~e" card-dir:west)   "(make-card-dir \"west\")")
+(check-expect (format "~e" card-dir:west)   "(make-card-dir:west)")
 
 
 ;;;;;
