@@ -132,36 +132,44 @@
          what
          (type-error who what)))
 
+   ; list-ref/default : [List-of X] Integer X -> X
+   ; Like list-ref, but with a default in case the index is out of bounds.
+   (define (list-ref/default xs i x-default)
+     (cond
+       [(empty? xs)  x-default]
+       [(zero? i)    (first xs)]
+       [else         (list-ref/default (rest xs) (sub1 i) x-default)]))
+   
    ; try-convert : Any [Any -> Bool : X] [Symbol -> X] [List-of X]
    ;               -> [Union X #false]
    (define (try-convert v x? symbol->x xs)
      (cond
-       [(symbol? v) (symbol->x v)]
-       [(string? v) (symbol->x (string->symbol v))]
-       [(and (integer? v) (< -1 v (length xs))) (list-ref xs v)]
-       [(x? v) v]
-       [else #false]))
+       [(symbol? v)  (symbol->x v)]
+       [(string? v)  (symbol->x (string->symbol v))]
+       [(integer? v) (list-ref/default xs v #false)]
+       [(x? v)       v]
+       [else         #false]))
 
    ; (define-one-enum id expr) -> defns
-   (define-macro (define-one-enum var:id value:expr)
+   (define-macro (define-with-predicate var:id value:expr)
      (define var value)
      (define ({~id-concat var "?"} other) (eq? var other)))]
 
   ;; Here is the main definition of `define-enum`:
   (define-macro (define-enum name:id [alt:id ...])
     (define-struct {~id-concat (name)} [tag])
-    (define {~id-concat name "?"} {~id-concat (name "?")})
-    (define pred? {~id-concat (name "?")})
+    (define *name*? {~id-concat (name "?")})
+    (define {~id-concat name "?"} *name*?)
     (define ({~id-concat name "=?"} a b)
-      (eq? (check a '(name =?) pred?) (check b '(name =?) pred?)))
-    (define-one-enum {~id-concat (name ":") alt}
+      (eq? (check a '(name =?) *name*?) (check b '(name =?) *name*?)))
+    (define-with-predicate {~id-concat (name ":") alt}
       ({~id-concat "make-" name} (symbol->string 'alt)))
     ...
     ;;
     ;; Optional but fun stuff:
     ;;
     (define ({~id-concat name "->string"} a)
-      ({~id-concat (name) -tag} (check a '(name ->string) pred?)))
+      ({~id-concat (name) -tag} (check a '(name ->string) *name*?)))
     (define ({~id-concat ("symbol->") name} sym)
       (cond
         [(symbol=? 'alt sym) {~id-concat (name ":") alt}]
@@ -172,7 +180,7 @@
     (define {~id-concat name "-list"}
       (list {~id-concat (name ":") alt} ...))
     (define ({~id-concat ("make-") name} tag)
-      (if-let [result (try-convert tag pred?
+      (if-let [result (try-convert tag *name*?
                                    {~id-concat ("symbol->") name}
                                    {~id-concat name "-list"})]
               result
@@ -182,36 +190,26 @@
     ;;
     (define-match-macro matches?
       [(_ have:id {~literal alt})
-       (eq? have {~id-concat (name ":") alt})]
+       (eq? have {~id-concat name ":" alt})]
       ...
+      [(_ have:id {~literal else})
+       #t]
       [(_ have:id want:id)
        (syntax-error want "error: ~a-case: unknown alternative" name)]
       [(_ have:id ({~literal not} not-want (... ...+)))
        (not (matches? have (not-want (... ...))))]
       [(_ have:id (want (... ...)))
        (or* (matches? have want) (... ...))])
-    (define-match-macro case/helper
-      [(_ var:id
-          [guard answer:expr]
+    (define-macro ({~id-concat name "-case"}
+                   value:expr
+                   [guard:expr rhs:expr]
+                   (... ...+))
+      (local [(define var (check value '(name -case) *name*?))]
+        (cond
+          [(matches? var guard) rhs]
           (... ...)
-          [{~literal else} else-answer:expr])
-       (cond
-         [(matches? var guard) answer]
-         (... ...)
-         [else else-answer])]
-      [(_ var:id
-          [guard answer:expr]
-          (... ...))
-       (cond
-         [(matches? var guard) answer]
-         (... ...)
-         [else (error "error: " (symbol->string 'name)
-                      "-case: no matches")])])
-    (define-macro ({~id-concat name "-case"} value:expr
-                                             [guard:expr rhs:expr]
-                                             (... ...+))
-      (local [(define var (check value '(name -case) pred?))]
-        (case/helper var [guard rhs] (... ...))))))
+          [else (error "error: " (symbol->string 'name)
+                       "-case: no matches")])))))
 
 
 ;; Example:
@@ -249,6 +247,8 @@
 (check-expect (make-card-dir card-dir:east)  card-dir:east)
 (check-error  (make-card-dir #true)
               "error: make-card-dir: got #true")
+(check-error  (make-card-dir 6)
+              "error: make-card-dir: got 6")
 
 (check-expect card-dir-list
               (list card-dir:north card-dir:south card-dir:east card-dir:west))
