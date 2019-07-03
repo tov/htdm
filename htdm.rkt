@@ -2,12 +2,14 @@
 
 
 (require syntax/parse/define
+         racket/provide
          racket/splicing
          (prefix-in isl:   lang/htdp-intermediate)
          (prefix-in isl+λ: lang/htdp-intermediate-lambda))
 (require (for-syntax racket/base
-                     syntax/parse
+                     racket/format
                      racket/syntax
+                     syntax/parse
                      syntax/parse/define))
 
 (provide define-macro
@@ -16,7 +18,12 @@
          definition-local
          syntax-error
          ~id-concat
-         (for-syntax ... ...+ id expr number ~literal))
+         ~@ ~@@
+         (for-syntax
+          (matching-identifiers-out #rx"^~" (all-from-out syntax/parse))
+          ... ...+ id expr number))
+
+(define-syntax ~@@ (syntax-rules ()))
 
 (define-syntax syntax-error
   (syntax-parser
@@ -26,25 +33,9 @@
                                 (map syntax-e (syntax->list #'(msg param ...))))
                          #'cxt)]))
 
-(begin-for-syntax
-  ; id-concat/fun : [Syntax-of Any] [NE-Syntax-List-of Symbol]
-  ;                 -> [Syntax-of Symbol]
-  (define (id-concat/fun ids-stx #:loc [cxt0 #false])
-    (define ids (syntax-e ids-stx))
-    (define cxt (or cxt0 (car ids)))
-    (datum->syntax
-     cxt
-     (string->symbol
-      (apply string-append
-             (map (λ (id) (format "~a" (syntax-e id)))
-                  ids)))
-     cxt)))
 
 ; (id-concat name:id ...+) -> id
-(define-syntax ~id-concat
-  (syntax-parser
-    [(_ name:id ...+)
-     (id-concat/fun #'(name ...))]))
+(define-syntax ~id-concat (syntax-rules ()))
 
 
 ; (definition-group body:expr ...) -> expr
@@ -55,15 +46,19 @@
 
 
 (begin-for-syntax
-  (define-simple-macro (syntax-mapper [patt rhs ...+] ...)
-    (let ()
-      (define (loop stx)
-        (syntax-parse stx
-          [patt rhs ...] ...
-          [(first . rest)
-           (datum->syntax stx (cons (loop #'first) (loop #'rest)) stx)]
-          [_ stx]))
-      loop))
+  (define syntax-deep-map
+    (case-lambda
+      [(visitor stx)
+       (let loop ([stx stx])
+         (cond
+           [(visitor stx) => loop]
+           [else
+            (syntax-parse stx
+              [(first . rest)
+               (datum->syntax stx (cons (loop #'first) (loop #'rest)) stx stx)]
+              [_ stx])]))]
+      [(visitor)
+       (λ (stx) (syntax-deep-map visitor stx))]))
   
   (define-syntax-class head-pattern
     (pattern _:id)
@@ -102,51 +97,63 @@
 
 
 (begin-for-syntax
-  (define-syntax-class id-or-str
-    (pattern _:id)
-    (pattern _:str))
+  (define-syntax-class segment
+    (pattern :id)
+    (pattern :str))
 
   (define-splicing-syntax-class opt-literals
     (pattern (~seq #:literals param))
     (pattern (~seq) #:with param #'()))
-           ;  #:attr attr #'(#:literals (lit ...))
 
-    
-          ;   #:attr attr #'(#:literals ())
+  
+  ; id-concat/fun : syntax? [syntax-list-of identifier?] srcloc? -> identifer?
+  (define (id-concat/fun cxt ids-stx srcloc)
+    (datum->syntax
+     cxt
+     (string->symbol (apply ~a (syntax->datum ids-stx)))
+     srcloc))
 
-    
+  (define (parse-~id-concat stx)
+    (syntax-parse stx
+      [(_ (pre:segment ...) src-id:segment post:segment ...)
+       (id-concat/fun #'src-id #'(pre ... src-id post ...) stx)]
+      [(_ src-id:segment post:segment ...)
+       (id-concat/fun #'src-id #'(src-id post ...) stx)]
+      [(_ (only:segment ...+))
+       (id-concat/fun stx #'(only ...) stx)]))
+  
   ; [Syntax-of X] -> [Syntax-of X]
   (define concat-ids
-    (syntax-mapper
-     [((~literal ~id-concat) loc:id-or-str after:id-or-str ...)
-      (id-concat/fun #'(loc after ...) #:loc #'loc)]
-     [((~literal ~id-concat) (before:id-or-str ...)
-                             loc:id-or-str
-                             after:id-or-str ...)
-      (id-concat/fun #'(before ... loc after ...) #:loc #'loc)]
-     [((~and loc (~literal ~id-concat)) (part:id-or-str ...+))
-      (id-concat/fun #'(part ...) #:loc #'loc)]))
+    (syntax-deep-map
+     (syntax-parser
+       #:literals (~id-concat)
+       [(~id-concat ~! . _)
+        (parse-~id-concat this-syntax)]
+       [_ #f])))
+
+  (define process-~@@
+    (syntax-deep-map
+     (syntax-parser
+       #:literals (~@@)
+       [((~@@ form) . rest)
+        #'((~@ . form) . rest)]
+       [_ #f])))
 
   (define macro-body
     (syntax-parser
-      [(body)      (concat-ids #'body)]
-      [(body ...)  (concat-ids #'(definition-group body ...))]))
-
-  (define rest->dot
-    (syntax-mapper
-     [(#:rest rest) #'rest])))
+      [(body)      (process-~@@ (concat-ids #'body))]
+      [(body ...)  (process-~@@ (concat-ids #'(definition-group body ...)))])))
 
 (define-syntax (define-match-macro stx)
   (syntax-parse stx
     [(_ name:id lits:opt-literals
         [(_:id . args) body ...+]
         ...+)
-     (with-syntax
-         ([(args ...) (rest->dot #'(args ...))])
-       #'(define-syntax name
-           (syntax-parser #:literals lits.param
-             [(_ . args) (macro-body #'(body ...))]
-             ...)))]))
+     #'(define-syntax name
+         (syntax-parser
+           #:literals lits.param
+           [(_ . args) (macro-body #'(body ...))]
+           ...))]))
 
 ; (define-macro (name:id arg ...) body) -> ?
 (define-simple-macro (define-macro (name:id . args) body ...+)
